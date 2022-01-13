@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vaultwarden
+    #---
+    #apiVersion: v1
+    #kind: PersistentVolumeClaim
+    #metadata:
+    #  name: vaultwarden-pv
+    #  namespace: vaulwarden
+    #  labels:
+    #    app: vaultwarden
+    #spec:
+    #  accessModes:
+    #    - ReadWriteOnce
+    #  resources:
+    #    requests:
+    #      storage: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaultwarden-headless
+  namespace: vaultwarden
+  labels:
+    app: vaultwarden
+spec:
+  ports:
+    - port: 80
+      name: web
+  clusterIP: None
+  selector:
+    app: vaultwarden
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+spec:
+  serviceName: "vaulwarden-headless"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vaultwarden
+  template:
+    metadata:
+      labels:
+        app: vaultwarden
+    spec:
+      containers:
+        - name: vaultwarden
+          image: vaultwarden/server:latest
+          volumeMounts:
+            - name: vw-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: vw-data
+        namespace: vaultwarden
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 4Gi
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: vaultwarden-app
+  namespace: vaultwarden
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`vault.local.com`)
+      kind: Rule
+      services:
+        - name: vaultwarden-headless
+          port: 80
+  tls:
+    certResolver: pebble
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: https-redirect-scheme
+  namespace: vaultwarden
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+    port: "443"
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: vaultwarden-app-http
+  namespace: vaultwarden
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`vault.local.com`)
+      kind: Rule
+      middlewares:
+        - name: https-redirect-scheme
+      services:
+        - name: vaultwarden-headless
+          port: 80
